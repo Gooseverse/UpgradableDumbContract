@@ -1,0 +1,70 @@
+class Contracts::ERC20Storage < ContractImplementation
+  string :public, :name
+  string :public, :symbol
+  uint256 :public, :decimals
+  uint256 :public, :totalSupply
+  mapping ({ addressOrDumbContract: :uint256 }), :public, :balanceOf
+  mapping ({ addressOrDumbContract: mapping(addressOrDumbContract: :uint256) }), :public, :allowance
+end
+
+class Contracts::ERC20Logic < ContractImplementation
+  is :ERC20Storage
+
+  constructor(name: :string, symbol: :string, decimals: :uint256) {
+    s.name = name
+    s.symbol = symbol
+    s.decimals = decimals
+  }
+
+  function :transfer, { to: :addressOrDumbContract, amount: :uint256 }, :public, :virtual, returns: :bool do
+    require(s.balanceOf[msg.sender] >= amount, 'Insufficient balance')
+
+    s.balanceOf[msg.sender] -= amount
+    s.balanceOf[to] += amount
+
+    emit :Transfer, from: msg.sender, to: to, amount: amount
+
+    return true
+  end
+
+  // Add other functions and logic here
+end
+
+class Contracts::ERC20Proxy < ContractImplementation
+  is :ERC20Storage
+
+  mapping ({ addressOrDumbContract: :addressOrDumbContract }), :internal, :virtual, :logicContracts
+  bool :internal, :initialized
+
+  function :initialize(name: :string, symbol: :string, decimals: :uint256) {
+    require(!s.initialized, 'Already initialized')
+    s.name = name
+    s.symbol = symbol
+    s.decimals = decimals
+    s.initialized = true
+  }
+
+  function :setLogicContract(logicContractAddress: :addressOrDumbContract) {
+    s.logicContracts[msg.sender] = logicContractAddress
+  }
+
+  function :fallback, :public {
+    address logicContract = s.logicContracts[msg.sender];
+    require(logicContract != address(0), 'Logic contract not set');
+    assembly {
+      // Forward the call to the logic contract using delegatecall
+      let ptr := mload(0x40)
+      calldatacopy(ptr, 0, calldatasize())
+      let result := delegatecall(gas(), logicContract, ptr, calldatasize(), 0, 0)
+      let size := returndatasize()
+      returndatacopy(ptr, 0, size)
+      switch result
+      case 0 {
+        revert(ptr, size)
+      }
+      default {
+        return(ptr, size)
+      }
+    }
+  }
+end
